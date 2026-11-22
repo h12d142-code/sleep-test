@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SleepSync AI — 수면 전자약 연동 프로토타입</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    input[type="range"] {
+      accent-color: #2563eb;
+    }
+    .tab-btn[aria-selected="true"] {
+      background-color: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .tab-btn[aria-selected="false"] {
+      background-color: #ffffff;
+      color: #334155;
+      border-color: #e2e8f0;
+    }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+          AI
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">SleepSync AI 수면 전자약 연동 프로토타입</h1>
+          <p class="text-xs text-slate-500">실제 공개 데이터(Kaggle 452건 · PhysioNet SC4001E0 뇌파 840에포크) 기반 폐루프 제어 검증</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-xs">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-medium border border-emerald-200">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          실제 데이터 100% 구동
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+    <!-- Top KPI Row -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+        <p class="text-xs font-medium text-slate-500">AI 예측 수면 효율</p>
+        <div class="mt-1.5 flex items-baseline gap-2">
+          <span id="kpi-eff" class="text-2xl sm:text-3xl font-bold text-slate-900">--%</span>
+        </div>
+        <p class="mt-1 text-xs text-slate-400">452명 실제 데이터 학습 기반</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+        <p class="text-xs font-medium text-slate-500">수면 건강 위험도</p>
+        <div class="mt-1.5 flex items-center gap-2 flex-wrap">
+          <span id="kpi-risk" class="text-2xl sm:text-3xl font-bold text-slate-900">--점</span>
+          <span id="kpi-grade" class="px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-100 text-slate-700">--</span>
+        </div>
+        <p class="mt-1 text-xs text-slate-400">(1 - 수면효율) × 100</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+        <p class="text-xs font-medium text-slate-500">총 누적 전자약 자극</p>
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span id="kpi-stim" class="text-2xl sm:text-3xl font-bold text-blue-600">--분</span>
+          <span class="text-xs text-slate-400">/ 최대 60분</span>
+        </div>
+        <p class="mt-1 text-xs text-slate-400">7시간 실제 뇌파 리플레이 기준</p>
+      </div>
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+        <p class="text-xs font-medium text-slate-500">안전 가드레일 상태</p>
+        <div class="mt-1.5">
+          <span id="kpi-safety" class="inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-semibold bg-emerald-50 text-emerald-700">정상 보호 작동</span>
+        </div>
+        <p id="kpi-safety-sub" class="mt-1 text-xs text-slate-400">출력 상한 1.5mA · 60분 자동 차단</p>
+      </div>
+    </section>
+
+    <!-- Main 2-column layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <!-- Left Control Panel -->
+      <aside class="lg:col-span-4 space-y-5">
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-slate-900">사용자 수면·카페인 상태 입력</h2>
+            <span class="text-xs text-slate-400">실시간 반영</span>
+          </div>
+
+          <!-- Presets -->
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" id="preset-exam" class="px-2 py-2 text-xs font-semibold rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+              시험기간 학생
+            </button>
+            <button type="button" id="preset-normal" class="px-2 py-2 text-xs font-semibold rounded-xl border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition">
+              평소 학생
+            </button>
+            <button type="button" id="preset-good" class="px-2 py-2 text-xs font-semibold rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition">
+              안정 수면
+            </button>
+          </div>
+
+          <!-- Sliders -->
+          <div class="space-y-3.5 pt-1">
+            <div>
+              <div class="flex justify-between text-xs font-medium mb-1">
+                <label for="in-age" class="text-slate-700">나이 (14~29세)</label>
+                <span id="val-age" class="font-bold text-blue-600">18세</span>
+              </div>
+              <input id="in-age" type="range" min="14" max="29" step="1" value="18" class="w-full cursor-pointer" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-medium mb-1">
+                <label for="in-dur" class="text-slate-700">평소 수면 시간</label>
+                <span id="val-dur" class="font-bold text-blue-600">5.5시간</span>
+              </div>
+              <input id="in-dur" type="range" min="4.0" max="10.0" step="0.5" value="5.5" class="w-full cursor-pointer" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-medium mb-1">
+                <label for="in-awake" class="text-slate-700">밤에 깨는 횟수</label>
+                <span id="val-awake" class="font-bold text-blue-600">3회</span>
+              </div>
+              <input id="in-awake" type="range" min="0" max="5" step="1" value="3" class="w-full cursor-pointer" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-medium mb-1">
+                <label for="in-caff" class="text-slate-700">카페인 섭취량 (정제 상한 125mg)</label>
+                <span id="val-caff" class="font-bold text-blue-600">100mg</span>
+              </div>
+              <input id="in-caff" type="range" min="0" max="125" step="25" value="100" class="w-full cursor-pointer" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-medium mb-1">
+                <label for="in-bed" class="text-slate-700">평균 취침 시각</label>
+                <span id="val-bed" class="font-bold text-blue-600">새벽 01:00</span>
+              </div>
+              <input id="in-bed" type="range" min="21.0" max="26.0" step="0.5" value="25.0" class="w-full cursor-pointer" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <div class="flex justify-between text-xs font-medium mb-1">
+                  <label for="in-alc" class="text-slate-700">음주 빈도</label>
+                  <span id="val-alc" class="font-bold text-blue-600">0회</span>
+                </div>
+                <input id="in-alc" type="range" min="0" max="5" step="1" value="0" class="w-full cursor-pointer" />
+              </div>
+              <div>
+                <div class="flex justify-between text-xs font-medium mb-1">
+                  <label for="in-ex" class="text-slate-700">주간 운동</label>
+                  <span id="val-ex" class="font-bold text-blue-600">1회</span>
+                </div>
+                <input id="in-ex" type="range" min="0" max="5" step="1" value="1" class="w-full cursor-pointer" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Safety Guardrail Toggle -->
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-bold text-slate-800">독립 안전 가드레일 (Fail-safe)</p>
+              <p class="text-[11px] text-slate-500">1.5mA 상한 · 60분 초과 시 강제 차단</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input id="in-guardrail" type="checkbox" checked class="sr-only peer" />
+              <div class="w-11 h-6 bg-slate-300 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Personalized Lifestyle Guide -->
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-slate-900">맞춤 수면·생활 습관 안내</h2>
+            <span class="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">AI 설명가능성</span>
+          </div>
+          <ul id="guide-list" class="space-y-2 text-xs text-slate-700 leading-relaxed"></ul>
+        </div>
+      </aside>
+
+      <!-- Right Visualizations & Logs -->
+      <section class="lg:col-span-8 space-y-5">
+        <!-- Tabs -->
+        <div class="flex flex-wrap gap-2" role="tablist">
+          <button type="button" id="tab-sim" role="tab" aria-selected="true" class="tab-btn px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl border transition">
+            1. 실시간 전자약 제어 시뮬레이션
+          </button>
+          <button type="button" id="tab-eeg" role="tab" aria-selected="false" class="tab-btn px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl border transition">
+            2. 뇌파 주파수(델타파) 분석
+          </button>
+          <button type="button" id="tab-ethics" role="tab" aria-selected="false" class="tab-btn px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl border transition">
+            3. 데이터 정제 · AI 윤리 근거
+          </button>
+        </div>
+
+        <!-- Panel 1: Simulation Charts -->
+        <div id="panel-sim" class="space-y-4">
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900">실제 임상 뇌파 수면 단계 (PhysioNet SC4001E0 · 7시간 수면 창)</h3>
+                <p class="text-xs text-slate-500">미판독(?) 115분 제거 및 국제 표준(AASM) 5단계 통합 데이터 리플레이</p>
+              </div>
+              <span class="text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">실제 뇌파 840 에포크</span>
+            </div>
+            <div class="relative h-52 sm:h-56">
+              <canvas id="chart-stage"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900">AI 전자약 자극 출력 제어 (mA) 및 안전 가드레일</h3>
+                <p class="text-xs text-slate-500">깨어있음(입면 유도) → 얕은 잠(깊은 잠 유도) → 깊은 잠(서파 유지) → 꿈(REM 보호 일시정지)</p>
+              </div>
+              <span id="badge-limit" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">상한 1.5mA · 60분 제한</span>
+            </div>
+            <div class="relative h-52 sm:h-56">
+              <canvas id="chart-stim"></canvas>
+            </div>
+          </div>
+
+          <!-- Real-time Control Log Table -->
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-slate-900">전자약 실시간 제어 명령 기록 (투명성 로그)</h3>
+              <span class="text-xs text-slate-400">주요 전환 시점 및 안전 차단 기록</span>
+            </div>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto border border-slate-100 rounded-xl">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-600 sticky top-0">
+                  <tr>
+                    <th class="px-3 py-2 font-semibold">경과 시간</th>
+                    <th class="px-3 py-2 font-semibold">실제 수면 단계</th>
+                    <th class="px-3 py-2 font-semibold">델타파 비율</th>
+                    <th class="px-3 py-2 font-semibold">AI 명령 모드</th>
+                    <th class="px-3 py-2 font-semibold">출력 (mA)</th>
+                    <th class="px-3 py-2 font-semibold">안전 상태</th>
+                  </tr>
+                </thead>
+                <tbody id="log-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 2: EEG Frequency Analysis -->
+        <div id="panel-eeg" class="hidden space-y-4">
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">실제 뇌파(SC4001E0) 하룻밤 델타파(0.5~4Hz) 및 주파수 대역 추이</h3>
+              <p class="text-xs text-slate-500">0.5~30Hz 대역통과 필터링 후 추출한 실제 주파수 비율 — 깊은 잠(N3) 구간에서 평균 92.2%의 델타파 집중 확인</p>
+            </div>
+            <div class="relative h-64 sm:h-72">
+              <canvas id="chart-band"></canvas>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+              <div class="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                <p class="text-[11px] font-medium text-blue-700">깊은 잠(N3) 평균 델타파</p>
+                <p class="text-lg font-bold text-blue-900 mt-0.5">92.2%</p>
+              </div>
+              <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <p class="text-[11px] font-medium text-emerald-700">얕은 잠 2(N2) 평균 델타파</p>
+                <p class="text-lg font-bold text-emerald-900 mt-0.5">81.8%</p>
+              </div>
+              <div class="p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <p class="text-[11px] font-medium text-amber-700">꿈 수면(REM) 평균 세타파</p>
+                <p class="text-lg font-bold text-amber-900 mt-0.5">25.2%</p>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <p class="text-[11px] font-medium text-slate-600">정제된 핵심 수면 창</p>
+                <p class="text-lg font-bold text-slate-900 mt-0.5">420분 (7h)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Data Cleaning & AI Ethics -->
+        <div id="panel-ethics" class="hidden space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-2.5">
+              <h3 class="text-sm font-bold text-slate-900">① 실제 수집 데이터 정제 및 편향 진단</h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed list-disc pl-4">
+                <li><strong>Kaggle 수면 효율 데이터(452건):</strong> 결측치 65건 중앙값 대체, 카페인 200mg 이상치 4건 IQR 상한(125mg) 클리핑, 심야 취침·위험 등급 파생 속성 가공.</li>
+                <li><strong>연령 편향 진단:</strong> 10대 이하 비중이 3.8%(17명)에 불과함을 확인하여 향후 청소년 특화 데이터 보완 과제로 도출.</li>
+                <li><strong>PhysioNet 임상 뇌파(SC4001E0):</strong> 미판독(?) 115분 제거, 각성 편향(998.5분→93.5분) 수면 창 크로핑, 0.5~30Hz 대역통과 필터링 및 AASM 5단계 통합.</li>
+              </ul>
+            </div>
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-2.5">
+              <h3 class="text-sm font-bold text-slate-900">② AI 윤리 설계 및 한계점</h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed list-disc pl-4">
+                <li><strong>안전성(Fail-safe):</strong> AI 모델과 분리된 독립 가드레일로 1.5mA 상한, 누적 60분 강제 차단, 꿈(REM) 수면 보호 적용.</li>
+                <li><strong>투명성·자율성:</strong> 예측 근거와 실시간 제어 기록을 공개하고 생활 습관 개선 가이드를 병행 제공.</li>
+                <li><strong>프로토타입 한계:</strong> 실물 전자약 미연동으로 공개 임상 뇌파(1인) 리플레이를 활용했으며, 향후 BLE 하드웨어 연동 및 인체 안전성 검증 필요.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-6 text-center text-xs text-slate-400">
+    SleepSync AI 프로토타입 · 교육 및 창업 아이디어 검증용 (의료적 진단·치료 목적 아님) · 내장 모델 교차검증 평균 오차(MAE): 0.073
+  </footer>
+
+  <script>
+    const REAL_DATA = {"means":[40.285,7.466,1.613,23.064,1.137,1.794,23.636],"stds":[13.158,0.866,1.331,25.984,1.607,1.417,1.686],"weights":[0.8,1.0,2.2,1.0,1.6,1.1,1.0],"kaggle":[[65,6.0,0,0.0,0,3,25.0,0.88],[69,7.0,3,0.0,3,3,26.0,0.66],[40,8.0,1,0.0,0,3,21.5,0.89],[40,6.0,3,50.0,5,1,26.5,0.51],[57,8.0,3,0.0,3,3,25.0,0.76],[36,7.5,0,25.0,0,1,21.0,0.9],[27,6.0,2,50.0,0,1,21.0,0.54],[53,10.0,0,50.0,0,3,24.5,0.9],[41,6.0,3,50.0,0,1,26.5,0.79],[11,9.0,4,0.0,0,0,25.0,0.55],[50,8.0,1,50.0,0,3,24.5,0.92],[55,7.5,0,0.0,0,3,22.5,0.93],[30,9.0,0,50.0,0,1,26.5,0.93],[28,8.5,4,0.0,0,3,25.0,0.64],[36,8.5,2,25.0,1,0,25.5,0.54],[32,7.5,0,50.0,2,5,22.0,0.92],[21,7.0,4,0.0,2,0,25.0,0.54],[40,7.5,3,50.0,2,3,23.0,0.5],[43,9.0,0,25.0,1,0,24.0,0.98],[52,7.0,1,50.0,0,3,24.5,0.89],[24,8.0,3,0.0,0,2,24.0,0.83],[32,7.5,3,50.0,4,1,26.5,0.71],[29,8.0,2,75.0,0,2,22.0,0.84],[63,8.0,0,50.0,0,1,26.5,0.98],[24,7.0,1,25.0,5,2,24.0,0.88],[52,6.0,1,0.0,0,2,24.0,0.91],[36,7.0,0,25.0,0,1,24.0,0.95],[35,7.0,2,0.0,0,2,26.5,0.84],[23,9.0,3,0.0,0,3,21.5,0.65],[47,7.0,1,0.0,3,4,22.5,0.91],[24,7.0,3,0.0,1,3,24.0,0.57],[18,8.0,3,25.0,0,0,24.5,0.68],[26,7.0,3,0.0,4,0,24.0,0.55],[37,7.0,0,25.0,1,2,24.5,0.9],[46,7.5,0,0.0,0,3,21.5,0.94],[61,7.0,2,50.0,3,0,25.0,0.64],[38,7.0,1,0.0,0,3,22.0,0.87],[20,9.0,4,25.0,0,1,24.0,0.82],[28,7.5,1,50.0,0,1,24.0,0.87],[58,7.0,3,50.0,3,0,26.0,0.63],[46,6.0,3,0.0,0,0,22.0,0.83],[52,6.0,1,25.0,0,1,25.5,0.83],[29,10.0,2,50.0,0,1,24.0,0.59],[31,7.5,1,50.0,0,1,22.5,0.87],[34,8.0,3,25.0,1,0,23.0,0.77],[40,7.0,1,50.0,0,1,25.5,0.86],[55,8.0,1,0.0,0,0,24.0,0.91],[27,7.5,1,50.0,1,1,24.0,0.71],[21,8.0,3,0.0,0,0,24.0,0.81],[37,7.0,1,0.0,5,4,21.5,0.81],[29,7.0,1,25.0,0,2,22.0,0.71],[65,7.5,2,50.0,2,3,26.5,0.71],[9,8.5,2,0.0,0,0,25.0,0.52],[16,8.5,2,0.0,0,0,25.0,0.65],[18,7.5,2,0.0,0,3,25.5,0.84],[37,9.0,1,0.0,0,3,22.0,0.84],[54,8.0,1,0.0,3,3,25.0,0.99],[43,7.5,1,25.0,0,3,26.0,0.91],[34,7.0,3,50.0,0,1,25.5,0.71],[34,7.5,4,50.0,0,1,21.0,0.8],[32,7.5,1,25.0,0,1,26.5,0.95],[56,7.0,0,0.0,0,4,22.5,0.91],[29,8.0,1,125.0,0,2,21.0,0.81],[35,7.5,1,25.0,0,1,21.0,0.93],[30,7.5,1,25.0,0,3,25.5,0.85],[21,8.0,4,0.0,3,3,25.0,0.77],[25,7.0,4,0.0,4,2,24.0,0.84],[52,7.5,0,25.0,2,1,25.5,0.87],[46,7.0,2,0.0,0,0,24.0,0.8],[40,6.0,2,0.0,2,3,22.0,0.52],[30,7.5,1,50.0,3,1,26.5,0.54],[32,7.0,1,50.0,2,4,23.0,0.88],[55,6.0,1,0.0,4,3,21.5,0.64],[58,7.5,0,25.0,0,2,26.5,0.87],[47,7.0,4,0.0,0,0,22.0,0.77],[44,8.5,2,0.0,0,1,24.5,0.68],[47,7.0,1,0.0,0,3,21.0,0.94],[46,9.0,1,0.0,5,3,26.0,0.7],[43,7.0,4,0.0,0,3,22.0,0.79],[54,7.5,3,0.0,0,2,26.5,0.77],[55,8.5,1,25.0,0,1,25.5,0.86],[29,7.5,2,125.0,0,2,21.0,0.81],[66,7.5,0,0.0,0,3,26.0,0.88],[40,8.0,4,25.0,0,3,22.5,0.78],[50,6.0,4,0.0,3,0,22.0,0.64],[53,7.5,1,75.0,0,2,23.0,0.88],[50,7.0,2,0.0,0,0,24.0,0.78],[50,7.0,3,0.0,3,0,24.0,0.71],[48,7.5,0,0.0,0,3,26.0,0.97],[24,7.5,4,25.0,0,1,24.0,0.77],[45,5.0,4,0.0,0,2,26.5,0.8],[57,8.0,0,0.0,3,3,21.5,0.94],[39,7.0,3,0.0,3,3,21.0,0.52],[43,7.0,4,0.0,0,0,22.0,0.76],[51,7.5,4,0.0,3,0,24.0,0.73],[61,7.0,1,25.0,2,0,26.0,0.73],[41,7.0,0,125.0,0,3,21.0,0.96],[53,7.5,1,25.0,0,2,23.0,0.91],[32,9.0,2,25.0,0,0,26.0,0.8],[65,8.0,4,0.0,0,3,25.5,0.77],[38,8.0,1,25.0,1,0,24.5,0.81],[53,8.5,4,0.0,1,3,25.0,0.71],[55,8.0,1,25.0,0,0,24.0,0.95],[44,6.0,4,25.0,5,0,23.0,0.64],[38,6.0,0,50.0,0,1,23.0,0.94],[40,8.0,0,25.0,0,3,22.0,0.87],[53,7.0,3,0.0,5,2,21.0,0.63],[24,8.5,0,50.0,0,1,24.5,0.88],[39,8.0,1,50.0,2,4,23.0,0.9],[47,7.5,1,50.0,0,3,24.5,0.94],[51,5.0,1,50.0,0,3,24.5,0.91],[25,7.0,0,100.0,0,3,23.0,0.9],[23,8.0,4,75.0,0,2,23.0,0.8],[54,6.0,1,25.0,0,1,25.5,0.85],[32,8.5,1,25.0,0,1,24.5,0.89],[22,7.0,2,0.0,5,3,24.0,0.53],[50,8.0,1,50.0,0,3,24.5,0.87],[30,8.0,1,0.0,5,0,21.5,0.5],[52,7.0,1,0.0,0,3,22.5,0.93],[52,7.0,2,0.0,0,3,21.5,0.72],[51,6.0,1,0.0,0,4,22.5,0.92],[15,8.0,1,0.0,0,0,25.0,0.62],[48,7.0,1,0.0,0,0,24.0,0.93],[19,8.5,1,25.0,0,1,25.5,0.91],[56,7.0,3,0.0,2,3,26.0,0.63],[25,8.0,2,25.0,0,3,22.5,0.77],[54,7.0,3,0.0,0,0,24.0,0.51],[37,7.0,1,50.0,1,3,23.0,0.94],[33,9.0,2,25.0,1,0,23.0,0.73],[25,7.0,2,50.0,0,3,21.0,0.78],[29,8.0,1,25.0,1,0,24.5,0.55],[36,8.0,4,50.0,0,1,24.5,0.83],[32,7.5,1,50.0,0,1,22.0,0.94],[37,8.0,1,0.0,0,3,21.5,0.95],[27,7.0,3,75.0,2,2,23.0,0.59],[48,7.0,1,50.0,1,4,24.0,0.82],[52,7.0,0,25.0,3,1,24.5,0.9],[36,7.0,2,0.0,0,3,26.0,0.77],[55,7.5,1,0.0,3,3,26.5,0.83],[52,9.0,2,25.0,2,0,24.0,0.65],[37,8.5,2,25.0,0,0,22.0,0.54],[28,6.0,2,50.0,5,1,21.0,0.51],[48,7.0,3,0.0,3,3,22.0,0.81],[25,7.0,1,0.0,3,3,21.5,0.87],[65,7.0,2,25.0,1,0,26.0,0.75],[31,7.0,3,50.0,5,1,25.5,0.57],[42,8.0,2,0.0,0,3,23.0,0.58],[40,8.0,4,25.0,1,0,24.0,0.81],[26,8.0,3,50.0,0,1,21.0,0.75],[33,7.5,1,50.0,0,1,26.5,0.6],[65,8.5,3,0.0,2,3,25.0,0.53],[50,7.0,1,50.0,2,4,23.0,0.93],[22,7.5,0,75.0,1,4,23.0,0.89],[41,7.5,3,0.0,0,3,26.5,0.7],[68,7.5,4,0.0,1,3,26.0,0.74],[61,7.5,1,0.0,0,1,25.5,0.92],[23,7.5,0,50.0,0,1,21.5,0.93],[45,7.0,1,0.0,0,4,21.0,0.95],[14,7.0,3,0.0,0,0,25.0,0.6],[30,8.5,0,0.0,0,1,24.5,0.93],[42,7.0,4,0.0,0,2,26.5,0.81],[42,7.5,0,125.0,0,3,21.0,0.95],[53,7.0,3,0.0,0,0,22.0,0.72],[49,7.0,1,25.0,1,0,24.5,0.9],[48,8.0,1,25.0,0,3,26.0,0.95],[48,7.0,1,0.0,5,4,22.0,0.91],[40,7.0,1,0.0,0,3,23.0,0.85],[48,7.0,0,75.0,0,4,22.0,0.9],[35,7.5,0,50.0,1,3,23.0,0.92],[55,7.0,3,25.0,0,1,25.5,0.6],[24,8.0,1,0.0,3,3,21.5,0.89],[33,7.5,1,50.0,3,1,21.0,0.67],[27,8.0,3,0.0,0,2,23.0,0.51],[24,6.0,1,0.0,0,0,26.0,0.78],[48,8.0,1,0.0,0,4,22.5,0.95],[42,7.0,2,25.0,0,3,22.0,0.68],[62,7.5,3,50.0,2,0,26.0,0.68],[44,7.0,0,50.0,0,1,26.0,0.94],[39,8.0,3,25.0,1,0,24.5,0.78],[53,6.0,1,75.0,0,2,23.0,0.9],[37,7.5,2,0.0,0,2,26.5,0.83],[29,7.0,2,50.0,0,1,21.5,0.8],[49,7.5,0,0.0,0,4,21.5,0.96],[24,8.0,0,0.0,0,0,24.0,0.91],[48,7.5,0,25.0,0,4,21.0,0.96],[36,7.5,0,50.0,0,4,23.0,0.94],[37,7.0,3,25.0,3,1,24.0,0.63],[27,7.0,4,50.0,0,2,24.0,0.73],[21,8.0,1,50.0,0,1,26.5,0.87],[52,7.0,4,0.0,0,0,25.0,0.76],[53,7.5,4,50.0,4,2,24.0,0.68],[27,8.0,1,75.0,0,2,22.5,0.94],[24,7.0,0,0.0,0,2,24.0,0.95],[18,7.0,1,25.0,0,0,26.0,0.62],[44,8.0,1,0.0,0,3,21.0,0.91],[61,7.0,2,50.0,5,0,26.0,0.67],[30,8.0,1,75.0,0,2,24.0,0.94],[48,6.0,4,0.0,0,2,26.5,0.79],[32,5.0,1,25.0,1,0,25.5,0.86],[52,7.0,1,0.0,0,0,22.5,0.83],[61,7.0,3,0.0,4,0,24.0,0.73],[64,8.0,2,50.0,0,0,26.0,0.71],[59,6.0,0,25.0,1,0,24.5,0.87],[38,8.0,3,25.0,3,2,23.0,0.5],[31,7.0,1,0.0,3,4,22.5,0.92],[32,6.0,1,25.0,1,0,21.5,0.79],[31,7.0,0,25.0,1,0,25.5,0.98],[41,7.0,1,50.0,0,0,26.0,0.93],[32,8.0,1,0.0,0,2,22.0,0.88],[61,9.0,1,0.0,0,3,26.0,0.77],[61,7.0,0,0.0,0,0,24.0,0.86],[10,7.0,3,0.0,0,0,25.0,0.54],[36,7.5,1,50.0,2,4,23.0,0.8],[29,5.0,1,75.0,0,2,24.0,0.86],[27,7.5,1,25.0,2,2,24.5,0.61],[22,7.0,4,25.0,5,1,23.0,0.72],[22,6.0,1,0.0,5,3,21.0,0.72],[40,7.5,4,50.0,3,1,24.0,0.55],[56,7.0,1,50.0,0,0,25.0,0.96],[13,8.0,1,0.0,0,0,25.0,0.58],[37,7.0,4,0.0,0,4,21.0,0.77],[41,8.5,0,25.0,1,0,23.0,0.85],[52,8.0,0,50.0,1,3,24.0,0.95],[63,8.5,3,50.0,0,0,26.0,0.69],[38,6.0,1,75.0,1,4,23.0,0.95],[60,8.0,3,0.0,3,3,25.0,0.82],[29,7.5,0,0.0,0,5,22.0,0.93],[29,7.0,1,0.0,0,2,21.5,0.82],[30,8.0,0,25.0,0,0,24.0,0.94],[26,7.0,4,0.0,0,3,22.5,0.75],[32,7.5,0,50.0,0,1,25.5,0.91],[55,8.0,1,0.0,0,3,23.0,0.65],[36,5.0,1,25.0,1,0,23.0,0.87],[53,8.0,4,25.0,0,1,25.5,0.84],[18,9.0,1,50.0,0,0,25.0,0.85],[28,7.0,1,50.0,0,1,21.0,0.91],[58,7.5,1,0.0,3,0,21.5,0.71],[51,7.5,2,25.0,0,1,25.5,0.82],[37,8.5,4,25.0,1,0,25.5,0.77],[41,8.0,0,0.0,0,3,22.0,0.95],[32,7.0,0,0.0,0,4,22.5,0.95],[56,8.5,3,0.0,0,1,24.5,0.76],[43,8.0,0,50.0,0,1,26.5,0.85],[52,7.0,4,75.0,0,3,24.0,0.75],[37,7.0,1,0.0,0,4,22.0,0.92],[67,8.5,3,0.0,3,3,25.0,0.78],[36,8.5,1,25.0,1,0,22.0,0.91],[29,8.0,0,0.0,0,5,22.0,0.85],[25,7.5,0,0.0,0,0,24.0,0.95],[61,10.0,1,0.0,4,1,24.5,0.66],[29,7.0,2,50.0,2,2,21.5,0.63],[31,8.5,0,50.0,0,1,24.5,0.86],[23,7.0,1,50.0,5,1,26.5,0.54],[46,6.0,0,0.0,0,3,21.0,0.95],[47,7.0,3,50.0,5,1,25.5,0.72],[65,7.0,2,50.0,0,0,26.0,0.52],[35,7.0,0,25.0,1,0,24.0,0.93],[27,8.0,1,25.0,5,5,22.0,0.52],[54,8.0,1,0.0,0,3,22.0,0.61],[48,7.5,2,0.0,0,4,21.5,0.79],[46,7.0,0,0.0,3,3,22.0,0.94],[37,7.0,1,25.0,0,4,22.0,0.76],[31,9.0,4,50.0,0,2,21.0,0.76],[23,9.0,1,25.0,0,1,24.0,0.78],[48,7.0,0,50.0,0,3,22.0,0.94],[44,7.5,0,0.0,0,3,26.0,0.87],[24,7.0,3,0.0,3,0,24.0,0.55],[30,8.0,1,0.0,3,4,22.5,0.93],[45,8.5,1,0.0,3,3,25.0,0.93],[27,7.0,0,25.0,0,2,24.0,0.94],[44,8.0,1,25.0,0,0,24.0,0.78],[50,7.0,1,0.0,0,3,21.5,0.94],[58,9.0,2,0.0,3,3,25.0,0.5],[49,7.0,0,50.0,0,3,24.5,0.93],[46,7.0,4,0.0,5,0,22.0,0.73],[27,7.0,0,50.0,4,1,23.0,0.9],[37,8.0,0,50.0,1,4,22.0,0.87],[48,8.0,0,25.0,0,4,21.5,0.93],[42,8.0,0,50.0,0,1,26.5,0.9],[48,7.0,1,0.0,2,4,22.0,0.67],[25,7.5,1,50.0,0,1,24.0,0.9],[64,7.5,1,0.0,0,3,26.0,0.9],[53,7.0,1,75.0,0,2,21.0,0.98],[38,8.5,4,25.0,2,0,23.0,0.66],[17,7.0,3,50.0,0,0,26.0,0.68],[27,6.0,3,0.0,5,2,23.0,0.56],[50,8.0,1,0.0,2,3,22.0,0.62],[40,7.5,1,75.0,2,3,21.5,0.52],[34,7.0,1,25.0,1,0,23.0,0.96],[26,7.0,2,50.0,0,1,22.0,0.81],[54,8.0,3,0.0,0,3,22.5,0.84],[46,7.5,1,0.0,0,3,21.5,0.93],[38,6.0,0,0.0,0,4,22.0,0.87],[24,7.0,0,25.0,0,0,22.0,0.86],[38,7.0,0,75.0,1,4,23.0,0.89],[29,8.0,0,0.0,0,2,25.0,0.94],[51,7.0,2,0.0,0,0,24.0,0.84],[27,8.0,1,25.0,1,0,24.5,0.86],[35,8.5,2,25.0,1,0,23.0,0.75],[22,8.0,4,0.0,4,3,21.5,0.6],[47,7.0,0,0.0,3,4,22.5,0.93],[25,8.5,2,25.0,0,1,24.0,0.75],[25,7.0,4,0.0,5,3,24.0,0.81],[51,10.0,2,0.0,0,2,26.5,0.78],[25,8.0,4,0.0,4,2,24.0,0.84],[65,5.0,1,0.0,0,1,24.5,0.9],[27,6.0,1,0.0,5,2,21.0,0.9],[41,9.0,1,25.0,1,0,24.5,0.67],[56,7.0,1,0.0,5,3,25.0,0.93],[28,7.5,2,50.0,0,1,21.0,0.8],[33,10.0,4,25.0,1,0,23.0,0.63],[22,7.0,1,0.0,0,4,22.0,0.9],[50,9.0,1,0.0,3,3,25.0,0.9],[25,7.0,1,25.0,0,2,23.0,0.86],[54,7.0,4,0.0,0,0,22.5,0.51],[40,8.0,1,0.0,0,3,22.0,0.71],[58,7.5,1,0.0,0,0,24.0,0.87],[45,7.5,1,0.0,5,0,21.0,0.7],[55,8.0,1,0.0,0,0,24.0,0.85],[54,7.0,1,0.0,4,2,24.0,0.87],[60,7.0,1,0.0,2,3,23.0,0.6],[25,7.5,2,25.0,0,3,23.0,0.83],[30,7.5,3,50.0,0,1,21.0,0.8],[41,7.5,0,0.0,0,0,24.0,0.93],[44,6.0,4,25.0,0,1,25.5,0.75],[52,7.0,4,0.0,4,0,25.0,0.5],[29,7.5,1,75.0,1,2,24.0,0.5],[44,7.5,1,50.0,1,1,23.0,0.67],[42,8.0,1,25.0,1,0,22.0,0.96],[26,7.5,4,50.0,2,1,24.0,0.52],[49,5.5,2,0.0,0,0,22.5,0.68],[46,8.0,3,0.0,0,3,21.5,0.72],[12,9.0,1,0.0,0,0,25.0,0.56],[27,7.5,0,25.0,0,5,22.0,0.91],[39,8.5,0,25.0,1,0,23.0,0.85],[44,10.0,3,50.0,4,1,24.5,0.72],[50,7.0,1,0.0,0,5,22.0,0.9],[52,8.0,1,50.0,1,3,22.5,0.77],[44,10.0,1,0.0,0,3,26.5,0.89],[57,5.5,0,0.0,0,0,22.0,0.9],[53,7.0,1,75.0,0,2,22.5,0.85],[65,8.0,0,0.0,0,0,24.0,0.95],[41,8.0,4,50.0,5,0,25.0,0.51],[52,7.0,0,50.0,0,1,26.5,0.9],[53,9.0,1,0.0,3,3,21.5,0.9],[25,7.0,1,50.0,2,3,24.0,0.51],[51,7.0,1,0.0,0,4,22.5,0.84],[30,8.0,3,0.0,4,2,24.0,0.82],[57,7.0,0,25.0,0,1,25.5,0.88],[24,7.5,1,50.0,0,1,21.5,0.79],[24,7.0,4,0.0,1,3,21.5,0.64],[19,7.5,4,25.0,0,1,24.0,0.84],[52,8.0,1,0.0,5,3,21.0,0.86],[45,7.5,4,0.0,2,0,22.0,0.71],[29,7.0,1,0.0,5,2,22.0,0.9],[39,7.0,3,25.0,0,2,26.5,0.82],[51,8.0,0,0.0,0,4,22.5,0.95],[27,9.0,0,75.0,0,2,24.0,0.95],[41,7.0,1,0.0,2,3,22.0,0.54],[65,9.0,0,0.0,0,0,25.0,0.95],[56,9.0,2,25.0,4,0,24.0,0.53],[27,6.0,0,75.0,0,2,24.0,0.92],[28,7.5,1,0.0,0,1,23.0,0.85],[30,10.0,0,25.0,1,0,25.5,0.92],[37,8.0,1,0.0,0,3,24.5,0.53],[22,7.0,4,50.0,0,1,25.5,0.75],[52,8.0,3,75.0,0,2,23.0,0.82],[56,5.0,1,0.0,0,3,26.5,0.74],[56,7.5,0,25.0,0,1,25.5,0.87],[41,6.0,2,25.0,1,1,25.5,0.72],[40,7.0,1,50.0,1,3,22.0,0.87],[32,7.0,2,50.0,2,1,26.5,0.53],[29,8.0,3,25.0,1,2,22.0,0.72],[39,8.0,1,0.0,0,3,23.0,0.87],[65,7.5,4,25.0,1,1,25.5,0.66],[60,9.0,2,50.0,3,0,26.0,0.66],[48,8.0,1,0.0,2,0,22.5,0.72],[21,8.0,4,25.0,0,1,24.0,0.81],[25,7.0,0,0.0,5,2,24.0,0.88],[61,7.0,1,0.0,3,3,22.0,0.94],[35,7.0,1,25.0,1,0,21.5,0.83],[22,7.0,1,75.0,1,4,23.0,0.91],[40,7.5,1,0.0,0,3,21.0,0.95],[39,9.0,1,0.0,0,3,22.0,0.9],[40,7.0,1,0.0,0,3,21.0,0.95],[32,8.0,1,0.0,0,0,24.0,0.9],[62,7.0,4,50.0,5,1,26.5,0.62],[48,7.0,1,0.0,0,3,21.0,0.93],[22,8.0,3,25.0,0,1,24.0,0.79],[36,8.0,1,50.0,2,4,23.0,0.91],[21,7.5,2,25.0,0,2,23.0,0.81],[37,5.0,2,50.0,4,1,24.5,0.52],[37,7.0,3,25.0,3,4,23.0,0.52],[56,7.0,3,0.0,0,0,21.5,0.84],[55,8.0,4,50.0,5,0,26.0,0.67],[56,8.0,2,0.0,0,3,21.5,0.83],[57,7.0,1,50.0,1,1,25.5,0.63],[59,8.0,2,50.0,2,0,26.0,0.64],[30,7.0,0,50.0,0,0,25.0,0.91],[32,7.5,3,50.0,0,1,26.5,0.82],[37,8.0,1,25.0,0,4,21.5,0.92],[48,7.5,0,0.0,0,3,25.5,0.92],[38,8.0,0,0.0,0,3,22.0,0.93],[58,8.0,0,0.0,3,3,21.5,0.87],[24,6.0,1,25.0,3,1,26.5,0.64],[56,5.5,0,0.0,0,3,26.0,0.9],[53,7.0,2,0.0,0,3,22.5,0.82],[35,8.0,1,25.0,1,0,24.5,0.86],[61,8.0,3,0.0,2,0,24.0,0.73],[32,8.0,0,50.0,0,1,23.0,0.9],[58,7.0,1,0.0,4,3,26.0,0.68],[53,7.0,3,0.0,0,2,24.0,0.82],[27,7.0,3,25.0,0,1,25.0,0.74],[51,8.5,1,50.0,0,3,24.5,0.88],[28,8.0,1,25.0,4,1,24.0,0.72],[49,7.0,1,0.0,4,0,24.0,0.67],[49,7.0,0,0.0,0,5,22.0,0.87],[44,7.0,4,0.0,3,3,22.0,0.66],[51,9.0,1,0.0,2,0,22.0,0.66],[21,8.5,0,50.0,0,1,24.5,0.87],[55,7.0,4,0.0,0,3,21.5,0.51],[44,7.0,4,0.0,0,0,22.5,0.79],[41,7.0,4,25.0,1,0,21.0,0.8],[41,7.5,1,50.0,4,1,24.5,0.55],[19,8.0,0,0.0,4,2,24.0,0.85],[26,6.0,0,50.0,0,1,21.0,0.88],[26,7.0,1,75.0,0,4,23.0,0.88],[54,8.0,0,0.0,3,3,23.0,0.93],[23,8.0,2,0.0,5,3,25.0,0.63],[52,7.5,1,0.0,0,4,22.5,0.92],[38,6.0,1,50.0,0,1,24.5,0.8],[37,7.0,1,50.0,1,3,23.0,0.92],[55,8.0,3,0.0,3,3,25.0,0.77],[29,7.5,0,75.0,0,2,21.0,0.9],[28,8.0,1,75.0,2,4,23.0,0.9],[40,7.0,0,0.0,0,3,22.0,0.96],[59,8.0,2,0.0,3,3,21.5,0.72],[56,8.0,0,0.0,3,3,25.0,0.86],[55,6.0,1,0.0,3,3,25.5,0.9],[25,7.5,4,0.0,3,3,23.0,0.5],[28,8.0,0,75.0,0,2,21.0,0.88],[46,9.0,4,0.0,3,0,24.0,0.6],[27,7.0,1,25.0,4,1,25.5,0.68],[65,7.5,4,50.0,2,0,26.0,0.67],[24,7.5,1,0.0,2,0,24.0,0.58],[30,7.5,4,50.0,2,1,23.0,0.53],[23,7.0,2,0.0,4,2,24.0,0.5],[27,7.5,0,0.0,0,5,22.0,0.91],[52,6.0,4,25.0,0,3,21.0,0.74],[40,8.5,1,25.0,3,0,23.0,0.55],[45,7.0,3,0.0,0,3,21.0,0.76],[18,7.5,1,50.0,0,1,26.5,0.63]],"eeg":[[0,4,88.4,8.5,1.2,1.9],[5,4,83.7,11.4,1.9,3.1],[10,4,82.7,11.2,2.4,3.6],[15,4,85.2,9.4,2.0,3.4],[20,4,86.3,9.7,1.8,2.1],[25,4,39.3,44.7,11.8,4.2],[30,1,74.4,19.4,3.7,2.5],[35,1,82.7,12.0,3.4,1.9],[40,0,90.1,7.4,1.9,0.6],[45,0,90.4,7.1,1.6,0.9],[50,0,89.0,8.2,2.0,0.8],[55,1,87.0,10.1,1.9,1.0],[60,0,82.9,11.7,3.1,2.3],[65,1,87.9,8.5,2.5,1.1],[70,0,91.3,6.6,1.6,0.5],[75,0,91.1,6.5,1.8,0.6],[80,0,94.4,4.1,1.3,0.2],[85,0,95.1,3.6,1.1,0.2],[90,0,95.8,3.1,0.9,0.2],[95,0,95.2,3.6,1.0,0.2],[100,0,96.2,2.9,0.7,0.1],[105,0,93.6,4.7,1.2,0.5],[110,0,87.0,10.8,1.4,0.8],[115,1,70.7,25.5,2.4,1.5],[120,3,59.9,31.4,6.1,2.6],[125,3,62.2,26.9,7.5,3.3],[130,3,60.5,28.3,6.7,4.4],[135,1,78.6,13.3,5.4,2.7],[140,2,68.3,24.5,4.5,2.7],[145,1,82.4,10.7,4.8,2.2],[150,1,81.6,12.3,4.5,1.6],[155,1,85.6,10.0,3.4,1.0],[160,0,90.6,7.0,2.0,0.4],[165,0,87.4,9.2,2.5,0.9],[170,0,93.5,5.0,1.2,0.3],[175,0,94.7,4.1,0.9,0.3],[180,0,93.9,4.7,1.0,0.5],[185,1,85.3,10.6,2.4,1.6],[190,1,78.5,16.8,2.9,1.8],[195,3,62.2,26.9,7.7,3.3],[200,3,64.0,23.7,8.6,3.8],[205,3,65.1,23.4,7.5,4.0],[210,2,66.0,22.2,7.2,4.6],[215,1,79.8,13.3,4.7,2.3],[220,1,84.6,10.6,3.2,1.6],[225,1,75.9,15.1,5.6,3.5],[230,1,84.6,10.0,3.8,1.6],[235,1,81.5,11.7,4.9,1.8],[240,0,88.9,8.2,2.1,0.7],[245,0,89.4,7.5,2.1,0.9],[250,0,90.7,6.6,1.9,0.7],[255,0,93.5,4.9,1.2,0.4],[260,0,84.2,12.0,2.5,1.3],[265,3,60.8,27.1,7.7,4.3],[270,3,63.4,25.8,7.2,3.7],[275,3,63.8,22.6,8.8,4.7],[280,4,75.1,16.4,6.0,2.4],[285,4,42.5,34.1,17.6,5.8],[290,1,68.5,20.7,7.6,3.2],[295,1,77.0,14.9,4.3,3.7],[300,1,73.1,14.9,6.8,5.3],[305,1,79.0,12.7,4.9,3.3],[310,1,81.2,11.8,4.3,2.8],[315,1,80.2,12.3,4.5,3.0],[320,1,86.3,9.4,3.0,1.4],[325,1,88.2,8.2,2.4,1.1],[330,1,89.0,7.7,2.0,1.3],[335,1,73.9,19.0,4.4,2.8],[340,3,69.3,20.9,6.3,3.5],[345,3,66.1,21.9,7.5,4.4],[350,3,62.6,25.1,7.9,4.4],[355,2,61.9,23.6,8.0,6.5],[360,3,65.3,22.1,7.9,4.6],[365,4,65.5,19.5,11.6,3.5],[370,4,59.9,22.3,11.0,6.8],[375,4,80.8,10.5,5.7,3.1],[380,4,81.2,10.9,5.9,2.1],[385,4,71.1,17.7,7.7,3.5],[390,4,67.0,20.4,9.2,3.3],[395,4,78.7,11.1,6.4,3.8],[400,4,87.4,8.4,1.8,2.3],[405,4,86.4,9.2,2.1,2.3],[410,4,82.8,10.7,2.7,3.9],[415,4,85.0,9.5,2.1,3.4]],"metrics":{"r2":0.461,"mae":0.073,"n_kaggle":452,"n_eeg_epochs":840}};
+
+    const STAGE_LABELS = {
+      0: "깊은 잠(N3)",
+      1: "얕은 잠 2(N2)",
+      2: "얕은 잠 1(N1)",
+      3: "꿈(REM)",
+      4: "깨어있음(W)"
+    };
+
+    const PRESETS = {
+      exam:   { age: 18, dur: 5.5, awake: 3, caff: 100, bed: 25.0, alc: 0, ex: 1 },
+      normal: { age: 18, dur: 7.0, awake: 1, caff: 25,  bed: 23.5, alc: 0, ex: 2 },
+      good:   { age: 19, dur: 8.0, awake: 0, caff: 0,   bed: 22.5, alc: 0, ex: 4 }
+    };
+
+    let stageChart = null;
+    let stimChart = null;
+    let bandChart = null;
+
+    function formatBedtime(h) {
+      const hour24 = h >= 24 ? h - 24 : h;
+      const hh = Math.floor(hour24);
+      const mm = Math.round((hour24 - hh) * 60);
+      const prefix = h >= 24 ? "새벽 " : "밤 ";
+      return prefix + String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+    }
+
+    // Distance-weighted KNN regression on actual 452 cleaned Kaggle records
+    function predictEfficiency(inputVec) {
+      const { means, stds, weights, kaggle } = REAL_DATA;
+      const normIn = inputVec.map((v, i) => ((v - means[i]) / (stds[i] || 1)) * weights[i]);
+      const scored = kaggle.map((row) => {
+        let sumSq = 0;
+        for (let i = 0; i < 7; i++) {
+          const normRow = ((row[i] - means[i]) / (stds[i] || 1)) * weights[i];
+          const diff = normIn[i] - normRow;
+          sumSq += diff * diff;
+        }
+        return { dist: Math.sqrt(sumSq), eff: row[7] };
+      });
+      scored.sort((a, b) => a.dist - b.dist);
+      const k = 11;
+      let num = 0, den = 0;
+      for (let i = 0; i < k; i++) {
+        const wt = 1.0 / (scored[i].dist + 0.15);
+        num += wt * scored[i].eff;
+        den += wt;
+      }
+      return Math.min(0.99, Math.max(0.45, num / (den || 1)));
+    }
+
+    function getInputs() {
+      return {
+        age: Number(document.getElementById("in-age").value),
+        dur: Number(document.getElementById("in-dur").value),
+        awake: Number(document.getElementById("in-awake").value),
+        caff: Number(document.getElementById("in-caff").value),
+        bed: Number(document.getElementById("in-bed").value),
+        alc: Number(document.getElementById("in-alc").value),
+        ex: Number(document.getElementById("in-ex").value),
+        guardrail: document.getElementById("in-guardrail").checked
+      };
+    }
+
+    function updateReadouts(inp) {
+      document.getElementById("val-age").textContent = inp.age + "세";
+      document.getElementById("val-dur").textContent = inp.dur.toFixed(1) + "시간";
+      document.getElementById("val-awake").textContent = inp.awake + "회";
+      document.getElementById("val-caff").textContent = inp.caff + "mg";
+      document.getElementById("val-bed").textContent = formatBedtime(inp.bed);
+      document.getElementById("val-alc").textContent = inp.alc + "회";
+      document.getElementById("val-ex").textContent = inp.ex + "회";
+    }
+
+    function renderGuides(inp, riskScore) {
+      const guides = [];
+      if (inp.dur < 7.0) {
+        guides.push({ tone: "rose", text: `수면 시간 부족(${inp.dur.toFixed(1)}시간): 다음 날 집중력 회복을 위해 최소 7~8시간 수면 확보를 권장합니다.` });
+      } else {
+        guides.push({ tone: "emerald", text: `적정 수면 시간(${inp.dur.toFixed(1)}시간): 현재 취침·기상 리듬을 일정하게 유지하세요.` });
+      }
+      if (inp.caff >= 75) {
+        guides.push({ tone: "rose", text: `카페인 의존 주의(${inp.caff}mg): 수면 질 저하를 막기 위해 취침 6시간 전부터 카페인 섭취를 중단하세요.` });
+      } else if (inp.caff >= 25) {
+        guides.push({ tone: "amber", text: `카페인 보통(${inp.caff}mg): 늦은 오후 이후 추가 카페인 섭취를 피하는 것이 좋습니다.` });
+      } else {
+        guides.push({ tone: "emerald", text: "카페인 미섭취(0mg): 카페인으로 인한 입면 방해 위험이 낮습니다." });
+      }
+      if (inp.bed >= 24.0) {
+        guides.push({ tone: "amber", text: `심야 취침(${formatBedtime(inp.bed)}): 00시 이후 취침 그룹은 평균 수면 위험도가 더 높으므로 30분씩 취침을 앞당겨 보세요.` });
+      }
+      if (inp.awake >= 2) {
+        guides.push({ tone: "amber", text: `야간 각성 잦음(${inp.awake}회): 취침 30분 전 스마트폰 사용을 줄이고 전자약 이완 모드를 활용하세요.` });
+      }
+      if (riskScore >= 30) {
+        guides.push({ tone: "rose", text: "종합 판단: 수면 건강 위험도가 높습니다. 무리한 밤샘 대신 전자약 입면 유도 모드를 활성화합니다." });
+      }
+
+      const ul = document.getElementById("guide-list");
+      ul.innerHTML = guides.map((g) => {
+        const dot = g.tone === "rose" ? "bg-rose-500" : (g.tone === "amber" ? "bg-amber-500" : "bg-emerald-500");
+        return `<li class="flex items-start gap-2"><span class="w-1.5 h-1.5 rounded-full ${dot} mt-1.5 shrink-0"></span><span>${g.text}</span></li>`;
+      }).join("");
+    }
+
+    function runSimulation() {
+      const inp = getInputs();
+      updateReadouts(inp);
+
+      const predEff = predictEfficiency([inp.age, inp.dur, inp.awake, inp.caff, inp.alc, inp.ex, inp.bed]);
+      const riskScore = Math.round((1 - predEff) * 1000) / 10;
+
+      // Update KPIs
+      document.getElementById("kpi-eff").textContent = (predEff * 100).toFixed(1) + "%";
+      document.getElementById("kpi-risk").textContent = riskScore.toFixed(1) + "점";
+
+      const gradeEl = document.getElementById("kpi-grade");
+      if (riskScore >= 30) {
+        gradeEl.textContent = "위험";
+        gradeEl.className = "px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-100 text-rose-700";
+      } else if (riskScore >= 15) {
+        gradeEl.textContent = "주의";
+        gradeEl.className = "px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700";
+      } else {
+        gradeEl.textContent = "안전";
+        gradeEl.className = "px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700";
+      }
+
+      renderGuides(inp, riskScore);
+
+      // Simulate closed-loop control across 84 actual 5-min bins from SC4001E0
+      const MAX_MA = 1.5;
+      const MAX_MIN = 60;
+      const times = [];
+      const stages = [];
+      const currents = [];
+      const limitLine = [];
+      const logs = [];
+      let totalStimMin = 0;
+      let safetyTriggered = false;
+      let prevMode = "";
+
+      REAL_DATA.eeg.forEach((pt, idx) => {
+        const [tMin, stageCode, deltaPct] = pt;
+        let mode = "대기";
+        let current = 0.0;
+
+        if (stageCode === 4 && riskScore >= 18) {
+          mode = "입면 이완 유도";
+          current = riskScore >= 30 ? 1.2 : 0.9;
+        } else if (stageCode === 2 || stageCode === 1) {
+          mode = "깊은 잠 유도";
+          current = 0.8;
+        } else if (stageCode === 0) {
+          mode = "서파 강화 유지";
+          current = 0.5;
+        } else if (stageCode === 3) {
+          mode = "꿈 수면 보호(정지)";
+          current = 0.0;
+        }
+
+        let safetyStatus = "정상";
+        if (inp.guardrail) {
+          if (current > MAX_MA) {
+            current = MAX_MA;
+            safetyStatus = "출력 상한 제한";
+          }
+          if (totalStimMin >= MAX_MIN && current > 0) {
+            mode = "안전 자동 중단";
+            current = 0.0;
+            safetyStatus = "60분 초과 강제 차단";
+            safetyTriggered = true;
+          } else if (current > 0) {
+            totalStimMin += 5;
+          }
+        } else if (current > 0) {
+          totalStimMin += 5;
+          safetyStatus = "가드레일 해제(주의)";
+        }
+
+        times.push(tMin + "분");
+        stages.push(stageCode);
+        currents.push(current);
+        limitLine.push(MAX_MA);
+
+        if (idx === 0 || mode !== prevMode || (safetyStatus === "60분 초과 강제 차단" && prevMode !== "안전 자동 중단")) {
+          logs.push({ tMin, stageCode, deltaPct, mode, current, safetyStatus });
+          prevMode = mode;
+        }
+      });
+
+      document.getElementById("kpi-stim").textContent = totalStimMin + "분";
+      const safetyEl = document.getElementById("kpi-safety");
+      const safetySub = document.getElementById("kpi-safety-sub");
+      const badgeLimit = document.getElementById("badge-limit");
+
+      if (!inp.guardrail) {
+        safetyEl.textContent = "가드레일 해제됨";
+        safetyEl.className = "inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-semibold bg-rose-50 text-rose-700";
+        safetySub.textContent = "과자극 방지 보호가 꺼져 있습니다";
+        badgeLimit.textContent = "안전 차단 OFF (비교 모드)";
+        badgeLimit.className = "text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700";
+      } else if (safetyTriggered) {
+        safetyEl.textContent = "60분 자동 차단 작동";
+        safetyEl.className = "inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700";
+        safetySub.textContent = "최대 누적 자극 도달 후 안전 정지";
+        badgeLimit.textContent = "상한 1.5mA · 60분 자동 차단 완료";
+        badgeLimit.className = "text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700";
+      } else {
+        safetyEl.textContent = "정상 보호 작동";
+        safetyEl.className = "inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-semibold bg-emerald-50 text-emerald-700";
+        safetySub.textContent = "출력 상한 1.5mA · 60분 자동 차단";
+        badgeLimit.textContent = "상한 1.5mA · 60분 제한";
+        badgeLimit.className = "text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700";
+      }
+
+      // Render log table
+      const tbody = document.getElementById("log-tbody");
+      tbody.innerHTML = logs.map((l) => {
+        const badgeCls = l.safetyStatus.includes("차단")
+          ? "bg-amber-100 text-amber-800"
+          : (l.safetyStatus.includes("해제") ? "bg-rose-100 text-rose-800" : "bg-emerald-50 text-emerald-700");
+        return `
+          <tr>
+            <td class="px-3 py-2 font-medium">${l.tMin}분</td>
+            <td class="px-3 py-2">${STAGE_LABELS[l.stageCode]}</td>
+            <td class="px-3 py-2">${l.deltaPct.toFixed(1)}%</td>
+            <td class="px-3 py-2 font-semibold text-slate-800">${l.mode}</td>
+            <td class="px-3 py-2">${l.current.toFixed(1)} mA</td>
+            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-[11px] font-medium ${badgeCls}">${l.safetyStatus}</span></td>
+          </tr>`;
+      }).join("");
+
+      updateCharts(times, stages, currents, limitLine);
+    }
+
+    function updateCharts(times, stages, currents, limitLine) {
+      if (!stageChart) {
+        stageChart = new Chart(document.getElementById("chart-stage"), {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [{
+              label: "실제 수면 단계",
+              data: stages,
+              borderColor: "#2563eb",
+              backgroundColor: "rgba(37,99,235,0.08)",
+              borderWidth: 2,
+              stepped: true,
+              pointRadius: 0,
+              fill: true
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => "수면 단계: " + STAGE_LABELS[ctx.parsed.y]
+                }
+              }
+            },
+            scales: {
+              y: {
+                min: -0.2,
+                max: 4.2,
+                ticks: {
+                  stepSize: 1,
+                  callback: (v) => STAGE_LABELS[v] || ""
+                }
+              },
+              x: { ticks: { maxTicksLimit: 10 } }
+            }
+          }
+        });
+      } else {
+        stageChart.data.labels = times;
+        stageChart.data.datasets[0].data = stages;
+        stageChart.update("none");
+      }
+
+      if (!stimChart) {
+        stimChart = new Chart(document.getElementById("chart-stim"), {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [
+              {
+                label: "전자약 자극 강도 (mA)",
+                data: currents,
+                borderColor: "#16a34a",
+                backgroundColor: "rgba(22,163,74,0.12)",
+                borderWidth: 2,
+                stepped: true,
+                pointRadius: 0,
+                fill: true
+              },
+              {
+                label: "안전 최대 상한선 (1.5 mA)",
+                data: limitLine,
+                borderColor: "#dc2626",
+                borderWidth: 1.5,
+                borderDash: [6, 4],
+                pointRadius: 0,
+                fill: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+              y: { min: 0, max: 1.8, title: { display: true, text: "출력 (mA)" } },
+              x: { ticks: { maxTicksLimit: 10 } }
+            }
+          }
+        });
+      } else {
+        stimChart.data.labels = times;
+        stimChart.data.datasets[0].data = currents;
+        stimChart.update("none");
+      }
+    }
+
+    function initBandChart() {
+      if (bandChart) return;
+      const times = REAL_DATA.eeg.map((p) => p[0] + "분");
+      bandChart = new Chart(document.getElementById("chart-band"), {
+        type: "line",
+        data: {
+          labels: times,
+          datasets: [
+            { label: "델타파 (0.5~4Hz, 깊은 잠)", data: REAL_DATA.eeg.map((p) => p[2]), borderColor: "#2563eb", borderWidth: 2, pointRadius: 0, tension: 0.25 },
+            { label: "세타파 (4~8Hz, 얕은 잠)", data: REAL_DATA.eeg.map((p) => p[3]), borderColor: "#10b981", borderWidth: 1.6, pointRadius: 0, tension: 0.25 },
+            { label: "알파파 (8~13Hz, 이완)", data: REAL_DATA.eeg.map((p) => p[4]), borderColor: "#f59e0b", borderWidth: 1.4, pointRadius: 0, tension: 0.25 },
+            { label: "베타파 (13~30Hz, 각성)", data: REAL_DATA.eeg.map((p) => p[5]), borderColor: "#ef4444", borderWidth: 1.2, pointRadius: 0, tension: 0.25 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          scales: {
+            y: { min: 0, max: 100, title: { display: true, text: "상대 비율 (%)" } },
+            x: { ticks: { maxTicksLimit: 10 } }
+          }
+        }
+      });
+    }
+
+    function applyPreset(key) {
+      const p = PRESETS[key];
+      document.getElementById("in-age").value = p.age;
+      document.getElementById("in-dur").value = p.dur;
+      document.getElementById("in-awake").value = p.awake;
+      document.getElementById("in-caff").value = p.caff;
+      document.getElementById("in-bed").value = p.bed;
+      document.getElementById("in-alc").value = p.alc;
+      document.getElementById("in-ex").value = p.ex;
+      runSimulation();
+    }
+
+    function switchTab(activeId) {
+      const map = {
+        "tab-sim": "panel-sim",
+        "tab-eeg": "panel-eeg",
+        "tab-ethics": "panel-ethics"
+      };
+      Object.keys(map).forEach((tid) => {
+        const isAct = tid === activeId;
+        document.getElementById(tid).setAttribute("aria-selected", isAct ? "true" : "false");
+        document.getElementById(map[tid]).classList.toggle("hidden", !isAct);
+      });
+      if (activeId === "tab-eeg") initBandChart();
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      ["in-age", "in-dur", "in-awake", "in-caff", "in-bed", "in-alc", "in-ex"].forEach((id) => {
+        document.getElementById(id).addEventListener("input", runSimulation);
+      });
+      document.getElementById("in-guardrail").addEventListener("change", runSimulation);
+
+      document.getElementById("preset-exam").addEventListener("click", () => applyPreset("exam"));
+      document.getElementById("preset-normal").addEventListener("click", () => applyPreset("normal"));
+      document.getElementById("preset-good").addEventListener("click", () => applyPreset("good"));
+
+      document.getElementById("tab-sim").addEventListener("click", () => switchTab("tab-sim"));
+      document.getElementById("tab-eeg").addEventListener("click", () => switchTab("tab-eeg"));
+      document.getElementById("tab-ethics").addEventListener("click", () => switchTab("tab-ethics"));
+
+      runSimulation();
+    });
+  </script>
+</body>
+</html>
